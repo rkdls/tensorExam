@@ -3,15 +3,15 @@ import numpy as np
 
 b = tf.Variable(tf.random_uniform([1], -1.0, 1.0))
 
-# xy = np.loadtxt('train.txt', unpack=True, dtype='float32')
-# x_data = xy[0:-1]
-# y_data = xy[-1]
-x_data = [[1, 1, 1, 1, 1],
-          [0., 2., 0., 4., 0.],
-          [1., 0., 3., 0., 5.]]
-y_data = [1, 2, 3, 4, 5]
-print(x_data)
-print(y_data)
+xy = np.loadtxt('train.txt', unpack=True, dtype='float32')
+x_data = xy[0:-1]
+y_data = xy[-1]
+# x_data = [
+#     [1., 1., 1., 1., 1.],
+#     [0., 2., 0., 4., 0.],
+#     [1., 0., 3., 0., 5.]
+# ]
+# y_data = [1, 2, 3, 4, 5]
 W = tf.Variable(tf.random_uniform([1, 3], -1.0, 1.0))
 
 hypothesis = tf.matmul(W, x_data)
