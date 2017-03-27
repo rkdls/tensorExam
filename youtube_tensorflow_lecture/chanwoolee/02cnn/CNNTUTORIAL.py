@@ -18,6 +18,9 @@ image_decoded = tf.image.decode_png(value)
 x = tf.placeholder(tf.float32, shape=[None, IMAGE_WIDTH, IMAGE_HEIGHT])
 y_ = tf.placeholder(tf.float32, shape=[None, 1])
 
+image_decoded = tf.image.decode_png(value)
+x = tf.cast(image_decoded, tf.float32)
+
 W_hidden1 = tf.Variable(tf.truncated_normal([5, 5, 1, 32]))
 B_hidden1 = tf.Variable(tf.zeros(32))
 
@@ -30,16 +33,17 @@ B_hidden2 = tf.Variable(tf.truncated_normal([64]))
 
 conv2 = tf.nn.conv2d(hidden1, W_hidden2, strides=[1, 1, 1, 1], padding='SAME')
 hidden2 = tf.nn.relu(conv2 + B_hidden2)
-init_op = tf.global_variables_initializer()
+
+h_flat = tf.reshape(hidden2, [-1, 49 * 61 * 64])
+fc_w = tf.Variable(tf.truncated_normal([49 * 61 * 64, 1]))
+fc_b = tf.Variable(tf.zeros([1]))
+
+fc = tf.nn.relu(tf.matmul(h_flat, fc_w) + fc_b)
 with tf.Session() as sess:
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-    sess.run(init_op)
-    # img = sess.run(image_decoded)
-    for i in range(1):
-        image = image_decoded.eval()
-        print(image.shape)
-    # Image.fromarray(np.asarray(img)).show()
-
+    sess.run(tf.global_variables_initializer())
+    img = sess.run(fc)
+    print(img)
     coord.request_stop()
     coord.join(threads)
