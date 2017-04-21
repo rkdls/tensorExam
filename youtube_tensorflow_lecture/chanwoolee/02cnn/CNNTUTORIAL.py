@@ -46,7 +46,7 @@ fc = tf.nn.relu(tf.matmul(h_flat, fc_w) + fc_b)
 model = tf.matmul(h_flat, fc_w)
 
 with tf.name_scope('OPTIMIZER'):
-    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(model, y_), )
+    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=model, labels=y_), )
 
     optimizer = tf.train.AdamOptimizer(0.001).minimize(cost)
 
