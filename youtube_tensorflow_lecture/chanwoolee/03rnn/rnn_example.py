@@ -33,7 +33,6 @@ class Rnn(object):
 
     @classmethod
     def _run_session(cls):
-
         for i in range(100):
             _, loss = cls.sess.run([cls.train, cls.loss])
             print("loss", loss)
@@ -48,14 +47,11 @@ class Rnn(object):
         cls.coord = tf.train.Coordinator()
         cls.thread = tf.train.start_queue_runners(cls.sess, cls.coord)
 
-
-
     @classmethod
     def _close_session(cls):
         cls.coord.request_stop()
         cls.coord.join(cls.thread)
         cls.sess.close()
-
 
     @classmethod
     def _gen_sim_data(cls):

@@ -7,22 +7,28 @@ import numpy as np
 IMAGE_WIDTH = 49
 IMAGE_HEIGHT = 61
 
-image_dir = './Face00003.png'
-# Image.open(image_dir).show()
-filename_list = [image_dir]
+image_dir = './Temp_data_Set/Test_Dataset_png/'
+image_dir = os.listdir(image_dir)
+filename_list = image_dir
+print(filename_list)
 filename_queue = tf.train.string_input_producer(filename_list)
 
 reader = tf.WholeFileReader()
 filename, content = reader.read(filename_queue)
 
 image = tf.image.decode_png(content, channels=1)
-print('ddd', content)
-image = tf.cast(image, tf.float32)
-resized_image = tf.image.resize_images(image, [IMAGE_WIDTH, IMAGE_HEIGHT])
+
+
+resized_image = tf.image.resize_images(image, [IMAGE_WIDTH, IMAGE_HEIGHT]) #(49,61,1)
+# print('before', resized_image.shape)
+# resized_image = tf.cast(resized_image, tf.float32) #(?,?,1)
+resized_image = tf.squeeze(resized_image)
+# print('resized_image.shape', resized_image.shape)
 
 with tf.name_scope('INPUT'):
     x = tf.placeholder(tf.float32, shape=[None, IMAGE_WIDTH, IMAGE_HEIGHT], name='INPUT')
     y_ = tf.placeholder(tf.float32, shape=[None, 1], name='OUTPUT')
+    # contents = tf.image.decode_png(x,channels=1)
 
 with tf.name_scope('LAYER1'):
     W_hidden1 = tf.Variable(tf.truncated_normal([5, 5, 1, 32]))
@@ -55,25 +61,28 @@ with tf.name_scope('ACCURACY'):
     accuracy = tf.reduce_mean(tf.cast(check_prediction, tf.float32))
     tf.summary.scalar('accuracy', accuracy)
 
+batch_xs= tf.train.batch([resized_image], batch_size=100)
 with tf.Session() as sess:
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(sess=sess, coord=coord)
     sess.run(tf.global_variables_initializer())
 
     # img= sess.run([fc])
-    for i in range(100):
-        batch_xs, label = tf.train.batch([resized_image, filename], batch_size=1)
+    for i in range(1):
         # batch_xs = batch_xs.reshape(-1, IMAGE_WIDTH, IMAGE_HEIGHT, 1)
-        # print(batch_xs, label)
-        print(type(resized_image), type(filename))
-        sess.run([optimizer, cost], feed_dict={x: resized_image, y_: filename})
-    # image.
+        # print('batch_xs, label', batch_xs, label)
+        # print(type(content), type(filename), type(image))
+        dd, ss = sess.run([batch_xs, label])
+        print(dd[0].shape)
+        im = Image.fromarray(dd[0])
+        im.show()
+
+        # sess.run([optimizer, cost], feed_dict={x: image, y_: filename})
     # Image.fromarray(np.asarray(image[0])).show()
-    # im = Image.fromarray(img_decode[1])
+    # im = Image.fromarray(dd)
     # im.show()
     # plt.imshow(img_decode[0])
     # plt.show()
-    print()
 
     coord.request_stop()
     coord.join(threads)
