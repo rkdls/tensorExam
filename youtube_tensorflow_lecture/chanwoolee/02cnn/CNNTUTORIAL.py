@@ -3,6 +3,7 @@ import os
 from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
+import csv
 
 IMAGE_WIDTH = 49
 IMAGE_HEIGHT = 61
@@ -10,19 +11,27 @@ IMAGE_HEIGHT = 61
 image_dir = './Temp_data_Set/Test_Dataset_png/'
 image_dir = os.listdir(image_dir)
 filename_list = image_dir
-print(filename_list)
+
+label_dir = ['./Temp_data_Set/Test_Dataset_csv/Label.csv']
+
+labelname_queue = tf.train.string_input_producer(label_dir)
 filename_queue = tf.train.string_input_producer(filename_list)
+
+label_reader = tf.TextLineReader()
+ss, csv_content = label_reader.read(labelname_queue)
+print(csv_content,ss)
+label = tf.decode_csv(csv_content, record_defaults=[[0]])
+print(label)
 
 reader = tf.WholeFileReader()
 filename, content = reader.read(filename_queue)
 
 image = tf.image.decode_png(content, channels=1)
 
-
-resized_image = tf.image.resize_images(image, [IMAGE_WIDTH, IMAGE_HEIGHT]) #(49,61,1)
+resized_image = tf.image.resize_images(image, [IMAGE_WIDTH, IMAGE_HEIGHT])  # (49,61,1)
 # print('before', resized_image.shape)
 # resized_image = tf.cast(resized_image, tf.float32) #(?,?,1)
-resized_image = tf.squeeze(resized_image)
+# resized_image = tf.squeeze(resized_image)
 # print('resized_image.shape', resized_image.shape)
 
 with tf.name_scope('INPUT'):
@@ -61,19 +70,21 @@ with tf.name_scope('ACCURACY'):
     accuracy = tf.reduce_mean(tf.cast(check_prediction, tf.float32))
     tf.summary.scalar('accuracy', accuracy)
 
-batch_xs= tf.train.batch([resized_image], batch_size=100)
+batch_xs, labels = tf.train.batch([resized_image, label], batch_size=1)
+
+print('labels', labels, 'batch_xs', batch_xs)
 with tf.Session() as sess:
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(sess=sess, coord=coord)
     sess.run(tf.global_variables_initializer())
 
-    # img= sess.run([fc])
     for i in range(1):
         # batch_xs = batch_xs.reshape(-1, IMAGE_WIDTH, IMAGE_HEIGHT, 1)
         # print('batch_xs, label', batch_xs, label)
         # print(type(content), type(filename), type(image))
-        dd, ss = sess.run([batch_xs, label])
+        dd, ss = sess.run([batch_xs])
         print(dd[0].shape)
+        print(ss)
         im = Image.fromarray(dd[0])
         im.show()
 
