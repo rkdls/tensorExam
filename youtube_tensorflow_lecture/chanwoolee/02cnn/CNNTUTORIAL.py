@@ -12,61 +12,65 @@ IMAGE_HEIGHT = 61
 
 image_dir_path = './Temp_data_Set/Test_Dataset_png/'
 image_dir = os.listdir(image_dir_path)
-filename_list = [image_dir_path+image for image in image_dir]
-
+filename_list = [image_dir_path + image for image in image_dir]
 label_dir = ['./Temp_data_Set/Test_Dataset_csv/Label.csv']
 
-labelname_queue = tf.train.string_input_producer(label_dir)
-filename_queue = tf.train.string_input_producer(filename_list)
+labelname_queue = tf.train.string_input_producer(label_dir, shuffle=False)
+filename_queue = tf.train.string_input_producer(filename_list, shuffle=False)
 
 label_reader = tf.TextLineReader()
 ss, csv_content = label_reader.read(labelname_queue)
-label = tf.cast(tf.decode_csv(csv_content, record_defaults=[[0]]), tf.float32)
-label = tf.reshape(label, [1])
+labels = tf.cast(tf.reshape(tf.decode_csv(csv_content, record_defaults=[[0]]),[1]) > 30, tf.float32)
+# label = tf.reshape(label, [1])
 
 image_reader = tf.WholeFileReader()
-filename, content = image_reader.read(filename_queue)
+filenames, content = image_reader.read(filename_queue)
 image = tf.cast(tf.image.decode_png(content, channels=1), tf.float32)
 
 # resized_image = tf.image.resize_images(image, [IMAGE_WIDTH, IMAGE_HEIGHT, 1])  # (49,61,1)
 resized_image = tf.reshape(image, [IMAGE_WIDTH, IMAGE_HEIGHT, 1])
-resized_image = tf.squeeze(resized_image)
+# resized_image = tf.squeeze(resized_image)
 
-batch_xs, labels = tf.train.shuffle_batch(tensors=[resized_image, label], batch_size=1, num_threads=4, capacity=5000,
-                                          min_after_dequeue=100)
+# batch_xs, labels, fn = tf.train.shuffle_batch(tensors=[resized_image, label, filename], batch_size=1, num_threads=4, capacity=5000,
+#                                           min_after_dequeue=100)
+# print(label, filename, resized_image)
+batch_xs, label, filename = tf.train.batch(tensors=[resized_image, labels, filenames], batch_size=1)
 # print('before', resized_image.shape)
 # resized_image = tf.cast(resized_image, tf.float32)  # (?,?,1)
 # print('resized_image.shape', resized_image.shape)
 
 with tf.name_scope('INPUT'):
-    x = tf.placeholder(tf.float32, shape=[None, IMAGE_WIDTH, IMAGE_HEIGHT], name='INPUT')
+    x = tf.placeholder(tf.float32, shape=[None, IMAGE_WIDTH, IMAGE_HEIGHT, 1], name='INPUT')
     y_ = tf.placeholder(tf.float32, shape=[None, 1], name='OUTPUT')
     # contents = tf.image.decode_png(x,channels=1)
 
 with tf.name_scope('LAYER1'):
-    W_hidden1 = tf.Variable(tf.truncated_normal([5, 5, 1, 32]))
-    B_hidden1 = tf.Variable(tf.zeros(32))
-
+    # 차원 49,61,32
+    # 풀링 작업 후에 => 25,31,32
+    W_hidden1 = tf.Variable(tf.truncated_normal([5, 5, 1, 32], stddev=0.01))
     x_image = tf.reshape(x, [-1, IMAGE_WIDTH, IMAGE_HEIGHT, 1])
     conv1 = tf.nn.conv2d(x_image, W_hidden1, strides=[1, 1, 1, 1], padding='SAME')
-    hidden1 = tf.nn.relu(conv1 + B_hidden1)
+    hidden1 = tf.nn.relu(conv1)
+    hidden1 = tf.nn.max_pool(hidden1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+    hidden1 = tf.nn.dropout(hidden1, 0.8)
 
 with tf.name_scope('LAYER2'):
+    # 차원 25, 31, 32
+    # 맥스풀링 후 => ? 13, 16, 64
     W_hidden2 = tf.Variable(tf.truncated_normal([5, 5, 32, 64]))  # 64개쓸거다.
     B_hidden2 = tf.Variable(tf.truncated_normal([64]))
     conv2 = tf.nn.conv2d(hidden1, W_hidden2, strides=[1, 1, 1, 1], padding='SAME')
     hidden2 = tf.nn.relu(conv2 + B_hidden2)
+    hidden2 = tf.nn.max_pool(hidden2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
-h_flat = tf.reshape(hidden2, [-1, 49 * 61 * 64])
-fc_w = tf.Variable(tf.truncated_normal([49 * 61 * 64, 1]))
-fc_b = tf.Variable(tf.zeros([1]))
+h_flat = tf.reshape(hidden2, [-1, 13 * 16 * 64])
+fc_w = tf.Variable(tf.truncated_normal([13 * 16 * 64, 1], stddev=0.01))
 
-fc = tf.nn.relu(tf.matmul(h_flat, fc_w) + fc_b)
-model = tf.matmul(h_flat, fc_w)
+fc = tf.nn.relu(tf.matmul(h_flat, fc_w))
+model = tf.nn.sigmoid(tf.matmul(h_flat, fc_w))
 
 with tf.name_scope('OPTIMIZER'):
-    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=model, labels=y_), )
-
+    cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=model, labels=y_))
     optimizer = tf.train.AdamOptimizer(0.001).minimize(cost)
 
 with tf.name_scope('ACCURACY'):
@@ -90,9 +94,11 @@ with tf.Session() as sess:
     # plt.imshow(img_decode[0])
     # plt.show()
 
-    for i in range(100):
-        opt, co = sess.run([optimizer, cost], feed_dict={x: batch_xs.eval(), y_: labels.eval()})
-        print('www', opt, co)
-
+    for i in range(1000):
+        # opt, co = sess.run([optimizer, cost], feed_dict={x: batch_xs.eval(), y_: labels.eval()})
+        parsed_image, parsed_label = sess.run([batch_xs, label])
+        print(parsed_label)
+        _, co = sess.run([optimizer, cost], feed_dict={x: parsed_image, y_: parsed_label})
+        print('cost', co)
     coord.request_stop()
     coord.join(threads)
