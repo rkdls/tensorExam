@@ -5,12 +5,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import csv
 
+from tensorflow.examples.tutorials.mnist import input_data
+
 IMAGE_WIDTH = 49
 IMAGE_HEIGHT = 61
 
-image_dir = './Temp_data_Set/Test_Dataset_png/'
-image_dir = os.listdir(image_dir)
-filename_list = image_dir
+image_dir_path = './Temp_data_Set/Test_Dataset_png/'
+image_dir = os.listdir(image_dir_path)
+filename_list = [image_dir_path+image for image in image_dir]
 
 label_dir = ['./Temp_data_Set/Test_Dataset_csv/Label.csv']
 
@@ -19,19 +21,21 @@ filename_queue = tf.train.string_input_producer(filename_list)
 
 label_reader = tf.TextLineReader()
 ss, csv_content = label_reader.read(labelname_queue)
-print(csv_content,ss)
-label = tf.decode_csv(csv_content, record_defaults=[[0]])
-print(label)
+label = tf.cast(tf.decode_csv(csv_content, record_defaults=[[0]]), tf.float32)
+label = tf.reshape(label, [1])
 
-reader = tf.WholeFileReader()
-filename, content = reader.read(filename_queue)
+image_reader = tf.WholeFileReader()
+filename, content = image_reader.read(filename_queue)
+image = tf.cast(tf.image.decode_png(content, channels=1), tf.float32)
 
-image = tf.image.decode_png(content, channels=1)
+# resized_image = tf.image.resize_images(image, [IMAGE_WIDTH, IMAGE_HEIGHT, 1])  # (49,61,1)
+resized_image = tf.reshape(image, [IMAGE_WIDTH, IMAGE_HEIGHT, 1])
+resized_image = tf.squeeze(resized_image)
 
-resized_image = tf.image.resize_images(image, [IMAGE_WIDTH, IMAGE_HEIGHT])  # (49,61,1)
+batch_xs, labels = tf.train.shuffle_batch(tensors=[resized_image, label], batch_size=1, num_threads=4, capacity=5000,
+                                          min_after_dequeue=100)
 # print('before', resized_image.shape)
-# resized_image = tf.cast(resized_image, tf.float32) #(?,?,1)
-# resized_image = tf.squeeze(resized_image)
+# resized_image = tf.cast(resized_image, tf.float32)  # (?,?,1)
 # print('resized_image.shape', resized_image.shape)
 
 with tf.name_scope('INPUT'):
@@ -70,30 +74,25 @@ with tf.name_scope('ACCURACY'):
     accuracy = tf.reduce_mean(tf.cast(check_prediction, tf.float32))
     tf.summary.scalar('accuracy', accuracy)
 
-batch_xs, labels = tf.train.batch([resized_image, label], batch_size=1)
+# batch_xs = tf.train.batch([label], batch_size=17)
 
-print('labels', labels, 'batch_xs', batch_xs)
 with tf.Session() as sess:
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(sess=sess, coord=coord)
     sess.run(tf.global_variables_initializer())
 
-    for i in range(1):
-        # batch_xs = batch_xs.reshape(-1, IMAGE_WIDTH, IMAGE_HEIGHT, 1)
-        # print('batch_xs, label', batch_xs, label)
-        # print(type(content), type(filename), type(image))
-        dd, ss = sess.run([batch_xs])
-        print(dd[0].shape)
-        print(ss)
-        im = Image.fromarray(dd[0])
-        im.show()
+    # print(batch_xs.eval())
 
-        # sess.run([optimizer, cost], feed_dict={x: image, y_: filename})
+    # sess.run([optimizer, cost], feed_dict={x: image, y_: filename})
     # Image.fromarray(np.asarray(image[0])).show()
     # im = Image.fromarray(dd)
     # im.show()
     # plt.imshow(img_decode[0])
     # plt.show()
+
+    for i in range(100):
+        opt, co = sess.run([optimizer, cost], feed_dict={x: batch_xs.eval(), y_: labels.eval()})
+        print('www', opt, co)
 
     coord.request_stop()
     coord.join(threads)
