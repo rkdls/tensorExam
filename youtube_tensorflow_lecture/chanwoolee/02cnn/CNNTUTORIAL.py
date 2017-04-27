@@ -13,7 +13,8 @@ IMAGE_HEIGHT = 61
 image_dir_path = './Temp_data_Set/Test_Dataset_png/'
 image_dir = os.listdir(image_dir_path)
 filename_list = [image_dir_path + image for image in image_dir]
-label_dir = ['./Temp_data_Set/Test_Dataset_csv/Label.csv']
+# label_dir = ['./Temp_data_Set/Test_Dataset_csv/Label.csv']
+label_dir = ['./csv_label.csv']
 
 labelname_queue = tf.train.string_input_producer(label_dir, shuffle=False)
 filename_queue = tf.train.string_input_producer(filename_list, shuffle=False)
@@ -81,7 +82,7 @@ print(
 )
 with tf.name_scope('OPTIMIZER'):
     # cost = -tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=fc, labels=y_))
-    cost = -tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=fc, labels=y_))
+    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=fc, labels=y_))
     # cost = -tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=fc, labels=y_))
     optimizer = tf.train.AdamOptimizer(0.001).minimize(cost)
 
