@@ -22,11 +22,11 @@ label_reader = tf.TextLineReader()
 ss, csv_content = label_reader.read(labelname_queue)
 
 labels = tf.cast(tf.decode_csv(csv_content, record_defaults=[[0]]), tf.int64)
-# labels = tf.one_hot(labels, depth=1, dtype=tf.uint8)
-# labels = tf.reshape(labels, [-1])
+labels = tf.one_hot(labels, depth=10, dtype=tf.uint8)
+labels = tf.reshape(labels, [-1])
 # print(labels.shape)
+
 image_reader = tf.WholeFileReader()
-print(filename_queue)
 filenames, content = image_reader.read(filename_queue)
 image = tf.cast(tf.image.decode_png(content, channels=1), tf.float32)
 
@@ -34,12 +34,10 @@ image = tf.cast(tf.image.decode_png(content, channels=1), tf.float32)
 resized_image = tf.reshape(image, [IMAGE_WIDTH, IMAGE_HEIGHT, 1])
 # resized_image = tf.squeeze(resized_image)
 
-print('befor batch', labels)
 batch_xs, label, filename = tf.train.shuffle_batch(tensors=[resized_image, labels, filenames], batch_size=1,
                                                    num_threads=4,
                                                    capacity=5000,
                                                    min_after_dequeue=100)
-print('after batch', label)
 # print(label, filename, resized_image)
 # batch_xs, label, filename = tf.train.batch(tensors=[resized_image, labels, filenames], batch_size=1)
 # print('before', resized_image.shape)
@@ -48,7 +46,7 @@ print('after batch', label)
 
 with tf.name_scope('INPUT'):
     x = tf.placeholder(tf.float32, shape=[None, IMAGE_WIDTH, IMAGE_HEIGHT, 1], name='INPUT')
-    y_ = tf.placeholder(tf.int32, shape=[None, None], name='OUTPUT')
+    y_ = tf.placeholder(tf.int32, shape=[None, 10], name='OUTPUT')
     # y_ = tf.reshape(y_, [-1])
     # contents = tf.image.decode_png(x,channels=1)
 
@@ -75,7 +73,7 @@ h_flat = tf.reshape(hidden2, [-1, 13 * 16 * 64])
 fc_w = tf.Variable(tf.truncated_normal([13 * 16 * 64, 10], stddev=0.01))
 
 fc = tf.nn.relu(tf.matmul(h_flat, fc_w))
-model = tf.nn.sigmoid(tf.matmul(h_flat, fc_w))
+# model = tf.nn.sigmoid(tf.matmul(h_flat, fc_w))
 
 print(
     fc.get_shape().ndims,
@@ -88,7 +86,8 @@ with tf.name_scope('OPTIMIZER'):
     optimizer = tf.train.AdamOptimizer(0.001).minimize(cost)
 
 with tf.name_scope('ACCURACY'):
-    check_prediction = tf.equal(tf.argmax(model, 1), tf.argmax(y_, 1))
+    # check_prediction = tf.equal(tf.argmax(model, 1), tf.argmax(y_, 1))
+    check_prediction = tf.equal(tf.argmax(fc, 1), tf.argmax(y_, 1))
     accuracy = tf.reduce_mean(tf.cast(check_prediction, tf.float32))
     tf.summary.scalar('accuracy', accuracy)
 
@@ -114,7 +113,7 @@ with tf.Session() as sess:
         parsed_image, parsed_label, parsed_name = sess.run([batch_xs, label, filename])
 
         # parsed_label = tf.reshape(parsed_label, [-1])
-        print(parsed_label.shape, parsed_name)
+        # print(parsed_label.shape, parsed_name)
         _, co = sess.run([optimizer, cost], feed_dict={x: parsed_image, y_: parsed_label})
         print(parsed_label, parsed_name, 'cost', co)
     coord.request_stop()
