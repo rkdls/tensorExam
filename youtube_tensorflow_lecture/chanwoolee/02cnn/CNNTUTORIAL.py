@@ -85,7 +85,6 @@ with tf.name_scope('OPTIMIZER'):
     cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=fc, labels=y_))
     # cost = -tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=fc, labels=y_))
     optimizer = tf.train.AdamOptimizer(0.001).minimize(cost)
-
 with tf.name_scope('ACCURACY'):
     # check_prediction = tf.equal(tf.argmax(model, 1), tf.argmax(y_, 1))
     check_prediction = tf.equal(tf.argmax(fc, 1), tf.argmax(y_, 1))
