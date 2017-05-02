@@ -36,11 +36,11 @@ def get_data(symbols, dates):
     return df_final
 
 
-def plot_data(df_data):
+def plot_data(df_data, title='Stock Data', xlabel="Date", ylabel="Price"):
     """Plot stock data with appropriate axis labels."""
-    ax = df_data.plot(title="Stock Data", fontsize=2)
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Price")
+    ax = df_data.plot(title=title, fontsize=2)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
     plt.show()
 
 
