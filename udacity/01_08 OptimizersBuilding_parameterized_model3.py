@@ -12,9 +12,11 @@ def fit_line(data, error_func, degree=3):
     
     Returns line that minimizes the error function.
     """
-    Cguess = np.poly1d(np.ones(degree +1, dtype=np.float32))
+    Cguess = np.poly1d(np.ones(degree + 1, dtype=np.float32))
+    # print('np.ones', np.ones(4))
+    # print(np.poly1d([3,3,3,3,3]))
 
-    x = np.linspace(-5,5,21)
+    x = np.linspace(-5, 5, 21)
 
     plt.plot(x, np.polyval(Cguess, x), 'm--', linewidth=2.0, label="Initial guess")
 
@@ -31,7 +33,7 @@ def error_poly(C, data):
     Return error as a single real value.
     """
 
-    err = np.sum((data[:, 1] - np.polyval(C, data[:0])) ** 2)
+    err = np.sum((data[:, 1] - np.polyval(C, data[:, 0])) ** 2)
     return err
 
 
