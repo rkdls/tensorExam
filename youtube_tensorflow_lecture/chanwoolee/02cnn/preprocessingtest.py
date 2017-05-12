@@ -15,24 +15,23 @@ with open('./Temp_data_Set/Test_Dataset_csv/Label.csv') as csvcontents:
     print(parsed_age)
     labels_batch = [parsed_age[row] for row in agelist]
 print(labels_batch)
-a,b,c,d,e,f,g=[],[],[],[],[],[],[]
+a, b, c, d, e, f, g = [], [], [], [], [], [], []
 for age in labels_batch:
-    if age==0:
+    if age == 0:
         a.append(age)
-    elif age==1:
+    elif age == 1:
         b.append(age)
-    elif age==2:
+    elif age == 2:
         c.append(age)
-    elif age==3:
+    elif age == 3:
         d.append(age)
-    elif age==4:
+    elif age == 4:
         e.append(age)
-    elif age==5:
+    elif age == 5:
         f.append(age)
-    elif age==6:
+    elif age == 6:
         g.append(age)
-print(len(a),len(b),len(c),len(d),len(e),len(f),len(g))
-
+print(len(a), len(b), len(c), len(d), len(e), len(f), len(g))
 
 # with open('./parsed_label.csv','wb') as csvwriter:
 #     writer = csv.writer(csvwriter)

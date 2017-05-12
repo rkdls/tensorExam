@@ -5,8 +5,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import csv
 
-from tensorflow.examples.tutorials.mnist import input_data
-
 IMAGE_WIDTH = 49
 IMAGE_HEIGHT = 61
 

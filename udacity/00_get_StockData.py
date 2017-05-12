@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import collections
 
 urls = ['http://www.daishin.co.kr/ctx_kr/sc_stock/sg_stock_info/svc_kosdaq_total/KosdaqKsSise.shtml']
+urls_daum = ['http://finance.naver.com/item/sise_day.nhn?code=005930&page=1']
 
 
 async def url_request(url):
@@ -15,9 +16,18 @@ async def url_request(url):
             raw_A = bs.find_all('a')
             return raw_A
 
+async def url_request_daum(url):
+    async with ClientSession() as session:  # 6
+        async with session.get(url) as response:  # 7
+            html = await response.read()  # 8
+            bs = BeautifulSoup(html, 'lxml')  # 9
+            raw_A = bs.find_all('table')
+            print(bs)
+            return raw_A
+
 
 async def get_html():  # 2
-    htmls = [url_request(url) for url in urls]  # 3
+    htmls = [url_request_daum(url) for url in urls_daum]  # 3
     for i, completed in enumerate(asyncio.as_completed(htmls)):  # 4
         raw = await completed  # 5
         return raw
