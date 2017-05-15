@@ -37,12 +37,15 @@ print('cross_val_score(sgd_clf,X_train, y_train_5, cv=3, scoring="accuracy"):',
       cross_val_score(sgd_clf, X_train, y_train_5, cv=3, scoring="accuracy"))
 
 from sklearn.base import BaseEstimator
+
+
 class Never5Classifier(BaseEstimator):
     def fit(self, X, y=None):
         pass
 
     def predict(self, X):
         return np.zeros((len(X), 1), dtype=bool)
+
 
 never_5 = Never5Classifier()
 print('cross_val_score(sgd_clf,X_train, y_train_5, cv=3, scoring="accuracy"):',
@@ -57,19 +60,29 @@ print('y_train_pred', type(y_train_pred))
 print(confusion_matrix(y_train_5, y_train_pred))
 skfolds = StratifiedKFold(n_splits=3, random_state=42)
 y_scores = cross_val_predict(sgd_clf, X_train, y_train_5, cv=3, method="decision_function")
+print('y_scores', y_scores)
 precisions, recalls, thresholds = precision_recall_curve(y_train_5, y_scores)
 
 print(precisions)
 print(recalls)
-print(thresholds)
+# print(thresholds)
+from sklearn.metrics import precision_score, recall_score
+
+print(precision_score(y_train_5, y_train_pred))  # == 3719 / (3719 + 984)
+print(recall_score(y_train_5, y_train_pred))  # == 3719 / (3719+ 1702)
+
+from sklearn.metrics import f1_score
+
+print(f1_score(y_train_5, y_train_pred))
 
 
 def plot_precision_recall_vs_threshold(precisions, recalls, thresholds):
     print('len', len(thresholds), len(precisions), len(recalls))
     plt.plot(thresholds, precisions[:-1], "b--", label="Precision")
     plt.plot(thresholds, recalls[:-1], "g-", label="Recall")
+    # plt.plot(recalls[:-1], precisions[:-1], "g-", label="Precision,Recall")
     plt.xlabel("Threshold")
-    plt.legend(loc="upper left")
+    plt.legend(loc="center left")
     plt.ylim([0, 1])
 
 
