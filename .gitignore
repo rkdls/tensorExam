@@ -1,4 +1,3 @@
 .idea
-*.ipynb
 *.tgz
 *__pycache__*

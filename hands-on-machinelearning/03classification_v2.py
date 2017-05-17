@@ -96,6 +96,7 @@ def plot_roc_curve(fpr, tpr):
     plt.plot(fpr, tpr, linewidth=2, label="roc curve")
     plt.plot([0, 1], [0, 1], 'k--')
     plt.axis([0, 1, 0, 1])
+    plt.legend('center right')
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
 
