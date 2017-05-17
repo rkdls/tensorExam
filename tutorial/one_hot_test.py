@@ -3,6 +3,10 @@ from random import randint
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import dtypes
 
+import pandas as pd
+
+gender = tf.contrib.layers.sparse_column_with_keys(column_name="gender", keys=["Female", "Male"])
+
 dims = 8
 # pos = randint(0, dims - 1)
 
