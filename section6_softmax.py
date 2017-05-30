@@ -40,4 +40,4 @@ with tf.Session() as sess:
     for step in range(2001):
         sess.run(optimizer, feed_dict={X:x_data, Y:y_data})
         if step % 20 == 0:
-            print(step, sess.run(cost, feed_dict={X:x_data, Y:y_data}), sess.run(W))
+            print(step, sess.run(cost, feed_dict={X:x_data, Y:y_data}))
