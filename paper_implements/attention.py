@@ -182,7 +182,7 @@ def tile_vector(vector, number):
 
 def attention_rnn(cell, inputs, num_steps, initial_state, batch_size, size, attn_length, num_tasks,
                   sequence_length=None):
-    '''
+    """
 
     :param cell: Cell takes input and state as input and returns output, alpha, attn_ids, lambda and new_state
     :param inputs: An tensor of size (batch x steps x size)
@@ -191,7 +191,7 @@ def attention_rnn(cell, inputs, num_steps, initial_state, batch_size, size, attn
     :param sequence_length:
     :param initial_state:
     :return:
-    '''
+    """
 
     outputs = []
     alphas = []
