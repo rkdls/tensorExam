@@ -1,3 +1,4 @@
+import pickle
 import tensorflow as tf
 
 
@@ -107,7 +108,8 @@ class AttentionCell(tf.nn.rnn_cell.RNNCell):
                    tf.transpose(tf.stack(attn_ids), [1, 0, 2]), lmda, states
 
     def _state(self, lm_output, state):
-        return tf.contrib.layers.linear(tf.concat(axis=1, values=state[-1]), self._size)
+        fully_connected = tf.contrib.layers.fully_connected(tf.concat(axis=1, values=state[-1]), self._size)
+        return fully_connected
 
     def _lm_output(self, lm_output):
         '''
@@ -124,22 +126,7 @@ class AttentionCell(tf.nn.rnn_cell.RNNCell):
     def _lambda(self, state, att_outputs, lm_input, num_tasks=None):
         num_tasks = num_tasks or self._num_tasks
         with tf.variable_scope("Lambda"):
-            if self.lambda_type == "fixed":
-                return tf.ones([tf.shape(state)[0], num_tasks]) / num_tasks
-            else:
-                lambda_state = []
-                if "state" in self.lambda_type:
-                    lambda_state.append(state)
-                if "att" in self.lambda_type:
-                    lambda_state.extend(att_outputs)
-                if "input" in self.lambda_type:
-                    lambda_state.append(lm_input)
-
-                size = self._size * len(lambda_state)
-                w_lambda = tf.get_variable("W_lambda", [size, num_tasks])
-                b_lambda = tf.get_variable("b_lambda", [num_tasks])
-                state = tf.concat(axis=1, values=lambda_state)
-                return tf.nn.softmax(tf.matmul(state, w_lambda) + b_lambda)
+            return tf.ones([tf.shape(state)[0], num_tasks])
 
     def _attention_states(self, attn_input, attn_ids, attn_count, lm_input, mask, raw_inputs):
         new_attn_input = tf.concat(axis=1, values=[
@@ -177,7 +164,8 @@ class AttentionCell(tf.nn.rnn_cell.RNNCell):
 
 
 def tile_vector(vector, number):
-    return tf.reshape(tf.tile(tf.expand_dims(vector, 1), [1, number]).eval(), [-1])
+    # return tf.reshape(tf.tile(tf.expand_dims(vector, 1), [1, number]).eval(), [-1])
+    return tf.reshape(tf.tile(tf.expand_dims(vector, 1), [1, number]), [-1])
 
 
 def attention_rnn(cell, inputs, num_steps, initial_state, batch_size, size, attn_length, num_tasks,
@@ -223,11 +211,18 @@ def attention_rnn(cell, inputs, num_steps, initial_state, batch_size, size, attn
     return output_tensor, alpha_tensor, attn_id_tensor, lmbda_tensor, state
 
 
-class ModelBase(object):
-    def __init__(self, input_data, targets, is_training, batch_size, seq_length, hidden_size, vocab_size, num_samples,
-                 keep_prob=0.9,
+class AttentionModel:
+    def __init__(self, input_data, targets, masks, is_training, batch_size, seq_length, hidden_size, vocab_size,
+                 num_samples, attention_num,
+                 max_attention, lambda_type, keep_prob=0.9,
                  num_layer=1, max_grad_norm=3):
-        # self.config = config
+        self._num_attns = attention_num
+        self._num_tasks = attention_num + 1
+        self._masks = masks
+        self._max_attention = max_attention
+        self._lambda_type = lambda_type
+        self._min_tensor = tf.ones([batch_size, self._max_attention]) * -1e-38
+
         self.is_training = is_training
         self.batch_size = batch_size = batch_size
         self.seq_length = seq_length = seq_length
@@ -242,25 +237,24 @@ class ModelBase(object):
 
         # self._input_data = input_data = tf.placeholder(tf.int32, [seq_length, batch_size], name="inputs")
         # self._targets = targets = tf.placeholder(tf.float32, [seq_length, batch_size], name="targets")
-        self._input_data = input_data = input_data
-        self._targets = targets
+        self.input_data = input_data = input_data
+        self.targets = targets
         # self._actual_lengths = tf.placeholder(tf.int32, [batch_size], name="actual_lengths")
 
         cell = self.create_cell()
 
-        self._initial_state = cell.zero_state(batch_size, tf.float32)
+        self.initial_state = cell.zero_state(batch_size, tf.float32)
 
         with tf.device('/cpu:0'):
             self._embedding = embedding = tf.get_variable("embedding", [vocab_size, size],
                                                           trainable=True)
-
             inputs = tf.gather(embedding, input_data)
 
-        # if is_training and config.keep_prob < 1:
-        #     inputs = tf.nn.dropout(inputs, config.keep_prob)
+        if is_training and keep_prob < 1:
+            inputs = tf.nn.dropout(inputs, keep_prob)
 
-        self._logits, self._predict, self._loss, self._final_state = self.output_and_loss(cell, inputs)
-        self._cost = cost = tf.reduce_sum(self._loss) / batch_size
+        self.logits, self.predict, self.loss, self.final_state = self.output_and_loss(cell, inputs)
+        self._cost = cost = tf.reduce_sum(self.loss) / batch_size
 
         if not is_training:
             return
@@ -269,89 +263,20 @@ class ModelBase(object):
         grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars),
                                           max_grad_norm)
 
-        self._lr = tf.Variable(0.0, trainable=False)
-        self._optimizer = tf.train.GradientDescentOptimizer(self.lr)
-        self._train_op = self._optimizer.apply_gradients(zip(grads, tvars))
-
-        print("Constructing Basic Model")
+        self.lr = tf.Variable(0.0, trainable=False)
+        self.optimizer = tf.train.GradientDescentOptimizer(self.lr)
+        self.train_op = self.optimizer.apply_gradients(zip(grads, tvars))
 
     def assign_lr(self, session, lr_value):
         session.run(tf.assign(self.lr, lr_value))
 
-    def create_cell(self):
-        raise NotImplementedError
-
-    def rnn(self, cell, inputs):
-        raise NotImplementedError
-
-    def output_and_loss(self, cell, input):
-        raise NotImplementedError
+    @property
+    def masks(self):
+        return self._masks
 
     @property
-    def lr(self):
-        return self._lr
-
-    @property
-    def input_data(self):
-        return self._input_data
-
-    @property
-    def targets(self):
-        return self._targets
-
-    @property
-    def initial_state(self):
-        return self._initial_state
-
-    @property
-    def cost(self):
-        return self._cost
-
-    @property
-    def final_state(self):
-        return self._final_state
-
-    @property
-    def train_op(self):
-        return self._train_op
-
-    @property
-    def optimizer(self):
-        return self._optimizer
-
-    @property
-    def logits(self):
-        return self._logits
-
-    @property
-    def predict(self):
-        return self._predict
-
-    @property
-    def loss(self):
-        return self._loss
-
-    # @property
-    # def actual_lengths(self):
-    #     return self._actual_lengths
-
-    @property
-    def is_attention_model(self):
-        raise NotImplementedError
-
-    @property
-    def embedding_variable(self):
-        return self._embedding
-
-
-class BasicModel(ModelBase):
-    def __init__(self, input_data, targets, is_training, batch_size, seq_length, hidden_size, vocab_size, num_samples,
-                 keep_prob=0.9,
-                 num_layer=1, max_grad_norm=3):
-        super(BasicModel, self).__init__(input_data, targets, is_training, batch_size, seq_length, hidden_size,
-                                         vocab_size, num_samples,
-                                         keep_prob=0.9,
-                                         num_layer=1, max_grad_norm=3)
+    def num_tasks(self):
+        return self._num_tasks
 
     def create_cell(self, size=None):
         size = size or self.hidden_size
@@ -366,66 +291,7 @@ class BasicModel(ModelBase):
                 [tf.nn.rnn_cell.BasicLSTMCell(size, forget_bias=1.0, state_is_tuple=True)]
                 * self.num_layers, state_is_tuple=True)
 
-        return lstm
-
-    def rnn(self, cell, inputs):
-        return tf.nn.dynamic_rnn(cell, inputs, sequence_length=self.seq_length,
-                                 initial_state=self._initial_state)
-
-    def output_and_loss(self, cell, inputs):
-        output, state = self.rnn(cell, inputs)
-
-        output = tf.reshape(output, [-1, self.size])
-        softmax_w = tf.get_variable("softmax_w", [self.size, self.vocab_size])
-        softmax_b = tf.get_variable("softmax_b", [self.vocab_size])
-        logits = tf.matmul(output, softmax_w) + softmax_b
-        predict = tf.nn.softmax(logits)
-
-        labels = tf.reshape(self.targets, [self.batch_size * self.seq_length, 1])
-
-        loss = tf.nn.sampled_softmax_loss(
-            tf.transpose(softmax_w), softmax_b, output, labels, self.num_samples, self.vocab_size) \
-            if self.num_samples > 0 else \
-            tf.nn.sparse_softmax_cross_entropy_with_logits(self._logits, tf.reshape(self.targets, [-1]))
-
-        return logits, predict, loss, state
-
-    @property
-    def is_attention_model(self):
-        return False
-
-
-class AttentionModel(BasicModel):
-    def __init__(self, input_data, targets, masks, is_training, batch_size, seq_length, hidden_size, vocab_size,
-                 num_samples, attention_num,
-                 max_attention, lambda_type, keep_prob=0.9,
-                 num_layer=1, max_grad_norm=3):
-        self._num_attns = attention_num
-        self._num_tasks = attention_num + 1
-        # self._masks = tf.placeholder(tf.bool,
-        #                              [seq_length, batch_size, attention_num], name="masks")
-        self._masks = masks
-        self._max_attention = max_attention
-        self._lambda_type = lambda_type
-        self._min_tensor = tf.ones([batch_size, self._max_attention]) * -1e-38
-
-        super(AttentionModel, self).__init__(input_data, targets, is_training, batch_size, seq_length, hidden_size,
-                                             vocab_size, num_samples,
-                                             keep_prob=0.9,
-                                             num_layer=1, max_grad_norm=3)
-        print("Constructing Attention Model")
-
-    @property
-    def masks(self):
-        return self._masks
-
-    @property
-    def num_tasks(self):
-        return self._num_tasks
-
-    def create_cell(self, size=None):
-        cell = super(AttentionModel, self).create_cell()
-        cell = AttentionCell(cell, self._max_attention, self.size, self._num_attns,
+        cell = AttentionCell(lstm, self._max_attention, self.size, self._num_attns,
                              self._lambda_type, self._min_tensor)
         return cell
 
@@ -440,6 +306,7 @@ class AttentionModel(BasicModel):
                              self.size, self._max_attention, self.num_tasks, sequence_length=self.seq_length)
 
     def output_and_loss(self, cell, inputs):
+
         def _attention_predict(alpha, attn_ids, batch_size, length, project_to):
             alpha = tf.reshape(alpha, [-1], name="att_reshape")
             attn_ids = tf.reshape(tf.cast(attn_ids, tf.int64), [-1, 1], name="att_id_reshape")
@@ -504,3 +371,65 @@ class AttentionModel(BasicModel):
     @property
     def is_attention_model(self):
         return True
+
+
+if __name__ == '__main__':
+    from glob import iglob
+    import os
+    from collections import deque
+
+    hidden_size = 10
+    seq_length = 1
+    batch_size = 100
+    num_samples = 0
+    data_path = 'data_samples/mapping.map'
+    num_samples = 10
+    attention_num = 5
+    max_attention = 3
+    lambda_type = 'state'
+    learning_rate = 0.01
+    with open(data_path, "rb") as f:
+        word_to_id = pickle.load(f)
+    vocab_size = len(word_to_id)
+
+    data = 'data_samples/'
+
+    pattern = 'preprocess.part*'
+
+    files = [y for x in os.walk(data) for y in iglob(os.path.join(x[0], pattern))]
+    current_file = deque(files).popleft()
+    with open(current_file, 'rb') as f:
+        current_data = pickle.load(f)
+
+    masks_ = tf.placeholder(tf.bool, [seq_length, batch_size, attention_num], name="masks")
+    input_data_ = tf.placeholder(tf.int32, [seq_length, batch_size], name="inputs")
+    targets_ = tf.placeholder(tf.float32, [seq_length, batch_size], name="targets")
+
+    a = AttentionModel(input_data=input_data_,
+                       targets=targets_,
+                       masks=masks_,
+                       is_training=True,
+                       attention_num=attention_num,
+                       batch_size=batch_size,
+                       hidden_size=hidden_size,
+                       num_samples=num_samples,
+                       seq_length=seq_length,
+                       vocab_size=vocab_size,
+                       lambda_type=lambda_type,
+                       max_attention=max_attention)
+
+    sess = tf.Session()
+    sess.run(tf.global_variables_initializer())
+    loss = a.loss
+    minimize = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss)
+
+    for i, seq_batch in enumerate(current_data):
+        actual_lengths = seq_batch.actual_lengths
+        identifier_usage = seq_batch.identifier_usage
+        inputs = seq_batch.inputs
+        masks = tf.transpose(seq_batch.masks, [0, 2, 1]).eval(session=sess)
+        targets = seq_batch.targets
+
+        feed_dict = {input_data_: inputs, targets_: targets, masks_: masks}
+        loss_, _ = sess.run([loss, minimize], feed_dict=feed_dict)
+        print('loss', loss_[0])
