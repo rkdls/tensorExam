@@ -224,7 +224,8 @@ def attention_rnn(cell, inputs, num_steps, initial_state, batch_size, size, attn
 
 
 class ModelBase(object):
-    def __init__(self, input_data, targets,is_training, batch_size, seq_length, hidden_size, vocab_size, num_samples, keep_prob=0.9,
+    def __init__(self, input_data, targets, is_training, batch_size, seq_length, hidden_size, vocab_size, num_samples,
+                 keep_prob=0.9,
                  num_layer=1, max_grad_norm=3):
         # self.config = config
         self.is_training = is_training
@@ -344,9 +345,11 @@ class ModelBase(object):
 
 
 class BasicModel(ModelBase):
-    def __init__(self, input_data, targets,is_training, batch_size, seq_length, hidden_size, vocab_size, num_samples, keep_prob=0.9,
+    def __init__(self, input_data, targets, is_training, batch_size, seq_length, hidden_size, vocab_size, num_samples,
+                 keep_prob=0.9,
                  num_layer=1, max_grad_norm=3):
-        super(BasicModel, self).__init__(input_data, targets,is_training, batch_size, seq_length, hidden_size, vocab_size, num_samples,
+        super(BasicModel, self).__init__(input_data, targets, is_training, batch_size, seq_length, hidden_size,
+                                         vocab_size, num_samples,
                                          keep_prob=0.9,
                                          num_layer=1, max_grad_norm=3)
 
@@ -393,7 +396,8 @@ class BasicModel(ModelBase):
 
 
 class AttentionModel(BasicModel):
-    def __init__(self, input_data, targets, masks, is_training, batch_size, seq_length, hidden_size, vocab_size, num_samples, attention_num,
+    def __init__(self, input_data, targets, masks, is_training, batch_size, seq_length, hidden_size, vocab_size,
+                 num_samples, attention_num,
                  max_attention, lambda_type, keep_prob=0.9,
                  num_layer=1, max_grad_norm=3):
         self._num_attns = attention_num
@@ -405,7 +409,8 @@ class AttentionModel(BasicModel):
         self._lambda_type = lambda_type
         self._min_tensor = tf.ones([batch_size, self._max_attention]) * -1e-38
 
-        super(AttentionModel, self).__init__(input_data, targets,is_training, batch_size, seq_length, hidden_size, vocab_size, num_samples,
+        super(AttentionModel, self).__init__(input_data, targets, is_training, batch_size, seq_length, hidden_size,
+                                             vocab_size, num_samples,
                                              keep_prob=0.9,
                                              num_layer=1, max_grad_norm=3)
         print("Constructing Attention Model")
@@ -485,9 +490,6 @@ class AttentionModel(BasicModel):
 
         lm_cross_entropy = tf.nn.sampled_softmax_loss(tf.transpose(softmax_w), softmax_b, tf.expand_dims(labels, 1),
                                                       output, self.num_samples, self.vocab_size)
-        # lm_cross_entropy = tf.nn.sampled_softmax_loss(softmax_w, softmax_b, output,
-        #                                               tf.expand_dims(labels, 1), self.config.num_samples,
-        #                                               self.vocab_size)
 
         attn_cross_entropies = [cross_entropy_from_indices(labels, attn_id, alpha,
                                                            self.batch_size * self.seq_length,
