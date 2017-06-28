@@ -2,6 +2,26 @@ import pickle
 import tensorflow as tf
 
 
+def cross_entropy(labels, predict, batch_size, vocab_size):
+    indices = labels + (tf.range(batch_size) * vocab_size)
+    predict_flat = tf.reshape(predict, [-1])
+    gathered = tf.gather(predict_flat, indices)
+    ce = -tf.log(gathered + 1e-10)
+    return ce
+
+
+def get_evals(evals, model):
+    for c, m in model.final_state[0] if model.is_attention_model else model.final_state:
+        evals.append(c)
+        evals.append(m)
+
+    if model.is_attention_model:
+        evals.extend(model.final_state[1] + model.final_state[2] + model.final_state[3] + model.final_state[4])
+        evals.append(model.final_state[5])
+
+    return evals
+
+
 def cross_entropy_from_indices(labels, indices, probabilities, batch_size, size):
     indices = tf.cast(indices, tf.float32)
     targets = tf.tile(tf.expand_dims(labels, 1), [1, size])
@@ -60,8 +80,9 @@ class AttentionCell(tf.nn.rnn_cell.RNNCell):
             attn_states = state[1]
             attn_ids = state[2]
             attn_counts = state[4]
-            if len(attn_states) != self._num_tasks - 1:
-                raise ValueError("Expected %d attention states but got %d" % (self._num_tasks - 1, len(attn_states)))
+            assert len(attn_states) == self._num_tasks - 1
+            # if len(attn_states) != self._num_tasks - 1:
+            #     raise ValueError("Expected %d attention states but got %d" % (self._num_tasks - 1, len(attn_states)))
 
             state = state[0]
             lm_input = inputs[:, 0:self._size]
@@ -243,6 +264,7 @@ class AttentionModel:
 
         cell = self.create_cell()
 
+        # attention state의 state_size()를 반환한다.
         self.initial_state = cell.zero_state(batch_size, tf.float32)
 
         with tf.device('/cpu:0'):
@@ -373,6 +395,64 @@ class AttentionModel:
         return True
 
 
+def get_initial_state(model, sess):
+    state = []
+    att_states = None
+    att_ids = None
+    att_counts = None
+    for c, m in model.initial_state[0] if model.is_attention_model else model.initial_state:
+        state.append((c.eval(session=sess), m.eval(session=sess)))
+    if model.is_attention_model:
+        att_states = [s.eval(session=sess) for s in list(model.initial_state[1])]
+        att_ids = [s.eval(session=sess) for s in list(model.initial_state[2])]
+        att_counts = [s.eval(session=sess) for s in list(model.initial_state[4])]
+
+    return state, att_states, att_ids, att_counts
+
+
+def construct_feed_dict(model, seq_batch, state, att_states, att_ids, att_counts):
+    input_data, targets, masks, identifier_usage, actual_lengths = seq_batch
+
+    feed_dict = {
+        model.input_data: input_data,
+        model.targets: targets,
+        model.actual_lengths: actual_lengths
+    }
+
+    if model.is_attention_model:
+        feed_dict[model.masks] = masks
+        # feed_dict[model.masks] = tf.transpose(masks, [0, 1, 2]).eval()
+
+    for i, (c, m) in enumerate(model.initial_state[0]) if model.is_attention_model else enumerate(model.initial_state):
+        feed_dict[c], feed_dict[m] = state[i]
+
+    if model.is_attention_model:
+        for i in range(len(model.initial_state[1])):
+            feed_dict[model.initial_state[1][i]] = att_states[i]
+            feed_dict[model.initial_state[2][i]] = att_ids[i]
+            feed_dict[model.initial_state[4][i]] = att_counts[i]
+
+    return feed_dict, identifier_usage
+
+
+def extract_results(results, evals, num_evals, model):
+    state_start = num_evals
+    state_end = state_start + len(model.final_state[0]) * 2 if model.is_attention_model else len(evals)
+
+    state_flat = results[state_start:state_end]
+    state = [state_flat[i:i + 2] for i in range(0, len(state_flat), 2)]
+
+    num_att_states = len(model.final_state[1]) if model.is_attention_model else 0
+    att_states = results[state_end:state_end + num_att_states] if model.is_attention_model else None
+    att_ids = results[state_end + num_att_states:state_end + num_att_states * 2] if model.is_attention_model else None
+    alpha_states = results[
+                   state_end + num_att_states * 2:state_end + num_att_states * 3] if model.is_attention_model else None
+    att_counts = results[state_end + num_att_states * 3:state_end + num_att_states * 4]
+    lambda_state = results[-1] if model.is_attention_model else None
+
+    return results[0:num_evals], state, att_states, att_ids, alpha_states, att_counts, lambda_state
+
+
 if __name__ == '__main__':
     from glob import iglob
     import os
@@ -393,8 +473,8 @@ if __name__ == '__main__':
     vocab_size = len(word_to_id)
 
     data = 'data_samples/'
-
-    pattern = 'preprocess.part*'
+    pattern = 'output.txt.part*'
+    # pattern = 'preprocess.part*'
 
     files = [y for x in os.walk(data) for y in iglob(os.path.join(x[0], pattern))]
     current_file = deque(files).popleft()
@@ -418,18 +498,39 @@ if __name__ == '__main__':
                        lambda_type=lambda_type,
                        max_attention=max_attention)
 
+    labels = tf.cast(tf.reshape(a.targets, [-1]), tf.int32)
+    # mode.predict  (batch*k , vocab)
+    cross_entropy = cross_entropy(labels, a.predict,
+                                  a.batch_size * a.seq_length,
+                                  a.vocab_size)
+    mask = tf.sign(tf.abs(a.targets))  # 0이면 0, 0이상이면 1
+    mask = tf.cast(tf.reshape(mask, [-1]), tf.float32)
+    cross_entropy *= mask  # Zero out entries where the target is 0 (padding)
+    cost_op = tf.reduce_sum(cross_entropy)
+
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
     loss = a.loss
-    minimize = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss)
+    train = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss)
+    initial_state = a.initial_state  # 초기 state=zero
 
+    evals = [loss, train]
+    evals = get_evals(evals=evals, model=a)
+
+    state, att_states, att_ids, att_counts = get_initial_state(a, sess)
     for i, seq_batch in enumerate(current_data):
         actual_lengths = seq_batch.actual_lengths
         identifier_usage = seq_batch.identifier_usage
         inputs = seq_batch.inputs
-        masks = tf.transpose(seq_batch.masks, [0, 2, 1]).eval(session=sess)
+        # masks = tf.transpose(seq_batch.masks, [0, 2, 1]).eval(session=sess)
+        masks = seq_batch.masks
         targets = seq_batch.targets
 
-        feed_dict = {input_data_: inputs, targets_: targets, masks_: masks}
-        loss_, _ = sess.run([loss, minimize], feed_dict=feed_dict)
-        print('loss', loss_[0])
+        feed_dict = construct_feed_dict(a, seq_batch, state, att_states, att_ids, att_counts)
+
+        results = sess.run(evals, feed_dict=feed_dict)
+
+        results, state, att_states, att_ids, alpha_states, att_counts, lambda_state \
+            = extract_results(results, evals, 2, a)
+
+        print('loss', results)
