@@ -1,5 +1,6 @@
 import pickle
 import tensorflow as tf
+import numpy as np
 
 
 def cross_entropy(labels, predict, batch_size, vocab_size):
@@ -133,15 +134,9 @@ class AttentionCell(tf.nn.rnn_cell.RNNCell):
         return fully_connected
 
     def _lm_output(self, lm_output):
-        '''
-        Determines what (part) of the Language model output to use when computing the cell output
-        '''
         return lm_output
 
     def _attn_input(self, lm_input, lm_output, final_output):
-        '''
-        Determines what (part) of the input or language model output to use as the current input for the attention model
-        '''
         return lm_input
 
     def _lambda(self, state, att_outputs, lm_input, num_tasks=None):
@@ -453,15 +448,51 @@ def extract_results(results, evals, num_evals, model):
     return results[0:num_evals], state, att_states, att_ids, alpha_states, att_counts, lambda_state
 
 
+def attention_masks(attns, masks, length):
+    lst = [np.ones([1, length])]
+    return np.transpose(np.concatenate(lst)) if lst else np.zeros([0, length])
+
+
+def sequence_iterator(batch, attns):
+    n = max([b.num_sequences for b in batch])
+    for i in range(n):
+        x_arr = np.zeros([seq_length, batch_size])
+        y_arr = np.zeros([seq_length, batch_size])
+        masks_arr = np.zeros([seq_length, batch_size, attns])
+        identifier_usages = np.zeros([batch_size, seq_length])
+        actual_lengths = np.zeros([batch_size])
+        for j in range(batch_size):
+            length = 0
+            if j < len(batch) and batch[j].num_sequences > i:
+                length = batch[j].actual_lengths[i]
+                x_arr[0:length, j] = np.transpose(batch[j].inputs[i][0:length])
+                y_arr[0:length, j] = np.transpose(batch[j].targets[i][0:length])
+                if hasattr(batch[j], "var_flags"):
+                    masks_arr[0:length, j] = np.transpose(
+                        attention_masks(attns, batch[j].var_flags[i], length))
+                else:
+                    masks_arr[0:length, j, :] = attention_masks(attns, batch[j].masks[i], length)
+
+                identifier_usages[j, 0:length] = batch[j].identifier_usage[i][0:length]
+
+            actual_lengths[j] = length
+
+        yield (x_arr, y_arr, masks_arr, identifier_usages, actual_lengths)
+
+        # exit(1)
+
+
 if __name__ == '__main__':
     from glob import iglob
     import os
     from collections import deque
 
     hidden_size = 10
-    seq_length = 1
+    seq_length = 100
     batch_size = 100
+    epoch = 3
     num_samples = 0
+    attns = 1
     data_path = 'data_samples/mapping.map'
     num_samples = 10
     attention_num = 5
@@ -518,19 +549,21 @@ if __name__ == '__main__':
     evals = get_evals(evals=evals, model=a)
 
     state, att_states, att_ids, att_counts = get_initial_state(a, sess)
-    for i, seq_batch in enumerate(current_data):
-        actual_lengths = seq_batch.actual_lengths
-        identifier_usage = seq_batch.identifier_usage
-        inputs = seq_batch.inputs
+    for i in range(epoch):
+        # for i, seq_batch in enumerate(current_data):
+        # tf.train.batch(tensors=,batch_size=batch_size)
+        # actual_lengths = current_data.actual_lengths
+        # identifier_usage = current_data.identifier_usage
+        # inputs = current_data.inputs
         # masks = tf.transpose(seq_batch.masks, [0, 2, 1]).eval(session=sess)
-        masks = seq_batch.masks
-        targets = seq_batch.targets
+        # masks = current_data.masks
+        # targets = current_data.targets
+        for feed_data in sequence_iterator(current_data, attns):
+            feed_dict = construct_feed_dict(a, feed_data, state, att_states, att_ids, att_counts)
 
-        feed_dict = construct_feed_dict(a, seq_batch, state, att_states, att_ids, att_counts)
+            results = sess.run(evals, feed_dict=feed_dict)
 
-        results = sess.run(evals, feed_dict=feed_dict)
+            results, state, att_states, att_ids, alpha_states, att_counts, lambda_state \
+                = extract_results(results, evals, 2, a)
 
-        results, state, att_states, att_ids, alpha_states, att_counts, lambda_state \
-            = extract_results(results, evals, 2, a)
-
-        print('loss', results)
+            print('loss', results)
