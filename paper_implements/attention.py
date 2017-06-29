@@ -255,7 +255,7 @@ class AttentionModel:
         # self._targets = targets = tf.placeholder(tf.float32, [seq_length, batch_size], name="targets")
         self.input_data = input_data = input_data
         self.targets = targets
-        # self._actual_lengths = tf.placeholder(tf.int32, [batch_size], name="actual_lengths")
+        self._actual_lengths = tf.placeholder(tf.int32, [batch_size], name="actual_lengths")
 
         cell = self.create_cell()
 
@@ -320,7 +320,7 @@ class AttentionModel:
         # return rnn.dynamic_attention_rnn(cell, inputs, self._max_attention, self.num_tasks, self.batch_size,
         #                                 sequence_length=self.actual_lengths, initial_state=self.initial_state)
         return attention_rnn(cell, inputs, self.seq_length, self.initial_state, self.batch_size,
-                             self.size, self._max_attention, self.num_tasks, sequence_length=self.seq_length)
+                             self.size, self._max_attention, self.num_tasks, sequence_length=self._actual_lengths)
 
     def output_and_loss(self, cell, inputs):
 
@@ -411,7 +411,7 @@ def construct_feed_dict(model, seq_batch, state, att_states, att_ids, att_counts
     feed_dict = {
         model.input_data: input_data,
         model.targets: targets,
-        model.actual_lengths: actual_lengths
+        model._actual_lengths: actual_lengths
     }
 
     if model.is_attention_model:
@@ -453,12 +453,12 @@ def attention_masks(attns, masks, length):
     return np.transpose(np.concatenate(lst)) if lst else np.zeros([0, length])
 
 
-def sequence_iterator(batch, attns):
+def sequence_iterator(batch):
     n = max([b.num_sequences for b in batch])
     for i in range(n):
         x_arr = np.zeros([seq_length, batch_size])
         y_arr = np.zeros([seq_length, batch_size])
-        masks_arr = np.zeros([seq_length, batch_size, attns])
+        masks_arr = np.zeros([seq_length, batch_size, 1])
         identifier_usages = np.zeros([batch_size, seq_length])
         actual_lengths = np.zeros([batch_size])
         for j in range(batch_size):
@@ -469,9 +469,9 @@ def sequence_iterator(batch, attns):
                 y_arr[0:length, j] = np.transpose(batch[j].targets[i][0:length])
                 if hasattr(batch[j], "var_flags"):
                     masks_arr[0:length, j] = np.transpose(
-                        attention_masks(attns, batch[j].var_flags[i], length))
+                        attention_masks(1, batch[j].var_flags[i], length))
                 else:
-                    masks_arr[0:length, j, :] = attention_masks(attns, batch[j].masks[i], length)
+                    masks_arr[0:length, j, :] = attention_masks(1, batch[j].masks[i], length)
 
                 identifier_usages[j, 0:length] = batch[j].identifier_usage[i][0:length]
 
@@ -488,17 +488,18 @@ if __name__ == '__main__':
     from collections import deque
 
     hidden_size = 10
-    seq_length = 100
+    seq_length = 5
     batch_size = 100
-    epoch = 3
-    num_samples = 0
-    attns = 1
+    epoch = 50
+    # num_samples = 0
+    # attns = 1
     data_path = 'data_samples/mapping.map'
     num_samples = 10
     attention_num = 5
     max_attention = 3
     lambda_type = 'state'
-    learning_rate = 0.01
+    learning_rate = 1
+    lr_decay = 0.01
     with open(data_path, "rb") as f:
         word_to_id = pickle.load(f)
     vocab_size = len(word_to_id)
@@ -512,7 +513,8 @@ if __name__ == '__main__':
     with open(current_file, 'rb') as f:
         current_data = pickle.load(f)
 
-    masks_ = tf.placeholder(tf.bool, [seq_length, batch_size, attention_num], name="masks")
+    # masks_ = tf.placeholder(tf.bool, [seq_length, batch_size, attention_num], name="masks")
+    masks_ = tf.placeholder(tf.bool, [seq_length, batch_size, 1], name="masks")
     input_data_ = tf.placeholder(tf.int32, [seq_length, batch_size], name="inputs")
     targets_ = tf.placeholder(tf.float32, [seq_length, batch_size], name="targets")
 
@@ -520,7 +522,7 @@ if __name__ == '__main__':
                        targets=targets_,
                        masks=masks_,
                        is_training=True,
-                       attention_num=attention_num,
+                       attention_num=1,
                        batch_size=batch_size,
                        hidden_size=hidden_size,
                        num_samples=num_samples,
@@ -542,13 +544,15 @@ if __name__ == '__main__':
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
     loss = a.loss
-    train = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss)
+    # train = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss)
+    train  = a.optimizer.minimize(loss)
     initial_state = a.initial_state  # 초기 state=zero
 
     evals = [loss, train]
     evals = get_evals(evals=evals, model=a)
-
+    print('start')
     state, att_states, att_ids, att_counts = get_initial_state(a, sess)
+    start_decaying = epoch // 10
     for i in range(epoch):
         # for i, seq_batch in enumerate(current_data):
         # tf.train.batch(tensors=,batch_size=batch_size)
@@ -558,12 +562,14 @@ if __name__ == '__main__':
         # masks = tf.transpose(seq_batch.masks, [0, 2, 1]).eval(session=sess)
         # masks = current_data.masks
         # targets = current_data.targets
-        for feed_data in sequence_iterator(current_data, attns):
-            feed_dict = construct_feed_dict(a, feed_data, state, att_states, att_ids, att_counts)
+        print('epoch ', i)
+        for feed_data in sequence_iterator(current_data):
+            feed_dict, identifiers_usage = construct_feed_dict(a, feed_data, state, att_states, att_ids, att_counts)
 
             results = sess.run(evals, feed_dict=feed_dict)
 
-            results, state, att_states, att_ids, alpha_states, att_counts, lambda_state \
-                = extract_results(results, evals, 2, a)
-
-            print('loss', results)
+            results, state, att_states, att_ids, alpha_states, att_counts, lambda_state = extract_results(results,
+                                                                                                          evals, 2, a)
+        lr = learning_rate if epoch < start_decaying else learning_rate * lr_decay
+        a.assign_lr(sess, lr)
+        print(results[0],'lr ', lr, 'epoch', epoch, ' start_decaying ', start_decaying)
