@@ -281,7 +281,8 @@ class AttentionModel:
                                           max_grad_norm)
 
         self.lr = tf.Variable(0.0, trainable=False)
-        self.optimizer = tf.train.GradientDescentOptimizer(self.lr)
+        # self.optimizer = tf.train.GradientDescentOptimizer(self.lr)
+        self.optimizer = tf.train.AdamOptimizer(self.lr)
         self.train_op = self.optimizer.apply_gradients(zip(grads, tvars))
 
     def assign_lr(self, session, lr_value):
@@ -498,8 +499,8 @@ if __name__ == '__main__':
     attention_num = 5
     max_attention = 3
     lambda_type = 'state'
-    learning_rate = 1
-    lr_decay = 0.01
+    learning_rate = 0.0001
+    # lr_decay = 0.9
     with open(data_path, "rb") as f:
         word_to_id = pickle.load(f)
     vocab_size = len(word_to_id)
@@ -545,15 +546,17 @@ if __name__ == '__main__':
     sess.run(tf.global_variables_initializer())
     loss = a.loss
     # train = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss)
-    train  = a.optimizer.minimize(loss)
+    train = a.optimizer.minimize(loss)
     initial_state = a.initial_state  # 초기 state=zero
 
     evals = [loss, train]
     evals = get_evals(evals=evals, model=a)
     print('start')
     state, att_states, att_ids, att_counts = get_initial_state(a, sess)
-    start_decaying = epoch // 10
+    start_decaying = epoch // 40
+
     for i in range(epoch):
+
         # for i, seq_batch in enumerate(current_data):
         # tf.train.batch(tensors=,batch_size=batch_size)
         # actual_lengths = current_data.actual_lengths
@@ -570,6 +573,7 @@ if __name__ == '__main__':
 
             results, state, att_states, att_ids, alpha_states, att_counts, lambda_state = extract_results(results,
                                                                                                           evals, 2, a)
-        lr = learning_rate if epoch < start_decaying else learning_rate * lr_decay
+        # lr = learning_rate if i < start_decaying else learning_rate * lr_decay
+        lr = learning_rate
         a.assign_lr(sess, lr)
-        print(results[0],'lr ', lr, 'epoch', epoch, ' start_decaying ', start_decaying)
+        print(sum(results[0]), 'lr ', lr, 'epoch', i, 'start_decaying ', start_decaying)
