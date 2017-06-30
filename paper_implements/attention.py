@@ -1,4 +1,6 @@
 import pickle
+
+import datetime
 import tensorflow as tf
 import numpy as np
 
@@ -180,8 +182,8 @@ class AttentionCell(tf.nn.rnn_cell.RNNCell):
 
 
 def tile_vector(vector, number):
-    # return tf.reshape(tf.tile(tf.expand_dims(vector, 1), [1, number]).eval(), [-1])
-    return tf.reshape(tf.tile(tf.expand_dims(vector, 1), [1, number]), [-1])
+    return tf.reshape(tf.tile(tf.expand_dims(vector, 1), [1, number]).eval(), [-1])
+    # return tf.reshape(tf.tile(tf.expand_dims(vector, 1), [1, number]), [-1])
 
 
 def attention_rnn(cell, inputs, num_steps, initial_state, batch_size, size, attn_length, num_tasks,
@@ -281,8 +283,8 @@ class AttentionModel:
                                           max_grad_norm)
 
         self.lr = tf.Variable(0.0, trainable=False)
-        # self.optimizer = tf.train.GradientDescentOptimizer(self.lr)
-        self.optimizer = tf.train.AdamOptimizer(self.lr)
+        self.optimizer = tf.train.GradientDescentOptimizer(self.lr)
+        # self.optimizer = tf.train.AdamOptimizer(self.lr)
         self.train_op = self.optimizer.apply_gradients(zip(grads, tvars))
 
     def assign_lr(self, session, lr_value):
@@ -480,8 +482,6 @@ def sequence_iterator(batch):
 
         yield (x_arr, y_arr, masks_arr, identifier_usages, actual_lengths)
 
-        # exit(1)
-
 
 if __name__ == '__main__':
     from glob import iglob
@@ -499,7 +499,8 @@ if __name__ == '__main__':
     attention_num = 5
     max_attention = 3
     lambda_type = 'state'
-    learning_rate = 0.0001
+    learning_rate = 0.01
+    model_path = './model'
     # lr_decay = 0.9
     with open(data_path, "rb") as f:
         word_to_id = pickle.load(f)
@@ -514,66 +515,73 @@ if __name__ == '__main__':
     with open(current_file, 'rb') as f:
         current_data = pickle.load(f)
 
-    # masks_ = tf.placeholder(tf.bool, [seq_length, batch_size, attention_num], name="masks")
-    masks_ = tf.placeholder(tf.bool, [seq_length, batch_size, 1], name="masks")
-    input_data_ = tf.placeholder(tf.int32, [seq_length, batch_size], name="inputs")
-    targets_ = tf.placeholder(tf.float32, [seq_length, batch_size], name="targets")
 
-    a = AttentionModel(input_data=input_data_,
-                       targets=targets_,
-                       masks=masks_,
-                       is_training=True,
-                       attention_num=1,
-                       batch_size=batch_size,
-                       hidden_size=hidden_size,
-                       num_samples=num_samples,
-                       seq_length=seq_length,
-                       vocab_size=vocab_size,
-                       lambda_type=lambda_type,
-                       max_attention=max_attention)
+    with tf.Graph().as_default(), tf.Session() as sess:
 
-    labels = tf.cast(tf.reshape(a.targets, [-1]), tf.int32)
-    # mode.predict  (batch*k , vocab)
-    cross_entropy = cross_entropy(labels, a.predict,
-                                  a.batch_size * a.seq_length,
-                                  a.vocab_size)
-    mask = tf.sign(tf.abs(a.targets))  # 0이면 0, 0이상이면 1
-    mask = tf.cast(tf.reshape(mask, [-1]), tf.float32)
-    cross_entropy *= mask  # Zero out entries where the target is 0 (padding)
-    cost_op = tf.reduce_sum(cross_entropy)
 
-    sess = tf.Session()
-    sess.run(tf.global_variables_initializer())
-    loss = a.loss
-    # train = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss)
-    train = a.optimizer.minimize(loss)
-    initial_state = a.initial_state  # 초기 state=zero
+        # masks_ = tf.placeholder(tf.bool, [seq_length, batch_size, attention_num], name="masks")
+        masks_ = tf.placeholder(tf.bool, [seq_length, batch_size, 1], name="masks")
+        input_data_ = tf.placeholder(tf.int32, [seq_length, batch_size], name="inputs")
+        targets_ = tf.placeholder(tf.float32, [seq_length, batch_size], name="targets")
 
-    evals = [loss, train]
-    evals = get_evals(evals=evals, model=a)
-    print('start')
-    state, att_states, att_ids, att_counts = get_initial_state(a, sess)
-    start_decaying = epoch // 40
+        a = AttentionModel(input_data=input_data_,
+                           targets=targets_,
+                           masks=masks_,
+                           is_training=True,
+                           attention_num=1,
+                           batch_size=batch_size,
+                           hidden_size=hidden_size,
+                           num_samples=num_samples,
+                           seq_length=seq_length,
+                           vocab_size=vocab_size,
+                           lambda_type=lambda_type,
+                           max_attention=max_attention)
+        sess.run(tf.global_variables_initializer())
 
-    for i in range(epoch):
+        # labels = tf.cast(tf.reshape(a.targets, [-1]), tf.int32)
+        # mode.predict  (batch*k , vocab)
+        # cross_entropy = cross_entropy(labels, a.predict,
+        #                               a.batch_size * a.seq_length,
+        #                               a.vocab_size)
+        # mask = tf.sign(tf.abs(a.targets))  # 0이면 0, 0이상이면 1
+        # mask = tf.cast(tf.reshape(mask, [-1]), tf.float32)
+        # cross_entropy *= mask  # Zero out entries where the target is 0 (padding)
+        # cost_op = tf.reduce_sum(cross_entropy)
 
-        # for i, seq_batch in enumerate(current_data):
-        # tf.train.batch(tensors=,batch_size=batch_size)
-        # actual_lengths = current_data.actual_lengths
-        # identifier_usage = current_data.identifier_usage
-        # inputs = current_data.inputs
-        # masks = tf.transpose(seq_batch.masks, [0, 2, 1]).eval(session=sess)
-        # masks = current_data.masks
-        # targets = current_data.targets
-        print('epoch ', i)
-        for feed_data in sequence_iterator(current_data):
-            feed_dict, identifiers_usage = construct_feed_dict(a, feed_data, state, att_states, att_ids, att_counts)
+        loss = a.loss
+        # train = a.optimizer.minimize(loss)
+        train = a.train_op
+        initial_state = a.initial_state  # 초기 state=zero
 
-            results = sess.run(evals, feed_dict=feed_dict)
+        evals = [loss, train]
+        evals = get_evals(evals=evals, model=a)
+        print('start')
+        state, att_states, att_ids, att_counts = get_initial_state(a, sess)
+        start_decaying = epoch // 40
+        saver = tf.train.Saver(tf.trainable_variables())
+        for i in range(epoch):
 
-            results, state, att_states, att_ids, alpha_states, att_counts, lambda_state = extract_results(results,
-                                                                                                          evals, 2, a)
-        # lr = learning_rate if i < start_decaying else learning_rate * lr_decay
-        lr = learning_rate
-        a.assign_lr(sess, lr)
-        print(sum(results[0]), 'lr ', lr, 'epoch', i, 'start_decaying ', start_decaying)
+            print('epoch ', i)
+            lr = learning_rate
+            a.assign_lr(sess, lr)
+
+            for feed_data in sequence_iterator(current_data):
+                feed_dict, identifiers_usage = construct_feed_dict(a, feed_data, state, att_states, att_ids, att_counts)
+
+                results = sess.run(evals, feed_dict=feed_dict)
+
+                results, state, att_states, att_ids, alpha_states, att_counts, lambda_state = extract_results(results,
+                                                                                                              evals, 2, a)
+            # lr = learning_rate if i < start_decaying else learning_rate * lr_decay
+            now = datetime.datetime.now().strftime("%Y-%m-%d--%H-%M--%f")
+            out_path = os.path.join(model_path, now + "/")
+
+            tf.train.write_graph(sess.graph.as_graph_def(), out_path, 'model.pb', as_text=False)
+            if not os.path.exists(out_path):
+                os.makedirs(out_path)
+            # with open(os.path.join(out_path, "config.pkl"), "wb") as f:
+            #     pickle.dump(config, f)
+            saver.save(sess, os.path.join(out_path, "model.tf"))
+
+
+            print(sum(results[0]), 'lr ', lr, 'epoch', i, 'start_decaying ', start_decaying)
