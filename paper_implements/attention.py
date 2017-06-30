@@ -1,8 +1,11 @@
 import pickle
 
 import datetime
+
+import gc
 import tensorflow as tf
 import numpy as np
+from collections import deque
 
 
 def cross_entropy(labels, predict, batch_size, vocab_size):
@@ -182,8 +185,8 @@ class AttentionCell(tf.nn.rnn_cell.RNNCell):
 
 
 def tile_vector(vector, number):
-    return tf.reshape(tf.tile(tf.expand_dims(vector, 1), [1, number]).eval(), [-1])
-    # return tf.reshape(tf.tile(tf.expand_dims(vector, 1), [1, number]), [-1])
+    # return tf.reshape(tf.tile(tf.expand_dims(vector, 1), [1, number]).eval(), [-1])
+    return tf.reshape(tf.tile(tf.expand_dims(vector, 1), [1, number]), [-1])
 
 
 def attention_rnn(cell, inputs, num_steps, initial_state, batch_size, size, attn_length, num_tasks,
@@ -274,14 +277,12 @@ class AttentionModel:
 
         self.logits, self.predict, self.loss, self.final_state = self.output_and_loss(cell, inputs)
         self._cost = cost = tf.reduce_sum(self.loss) / batch_size
-
         if not is_training:
             return
 
         tvars = tf.trainable_variables()
         grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars),
                                           max_grad_norm)
-
         self.lr = tf.Variable(0.0, trainable=False)
         self.optimizer = tf.train.GradientDescentOptimizer(self.lr)
         # self.optimizer = tf.train.AdamOptimizer(self.lr)
@@ -456,50 +457,97 @@ def attention_masks(attns, masks, length):
     return np.transpose(np.concatenate(lst)) if lst else np.zeros([0, length])
 
 
-def sequence_iterator(batch):
-    n = max([b.num_sequences for b in batch])
-    for i in range(n):
-        x_arr = np.zeros([seq_length, batch_size])
-        y_arr = np.zeros([seq_length, batch_size])
-        masks_arr = np.zeros([seq_length, batch_size, 1])
-        identifier_usages = np.zeros([batch_size, seq_length])
-        actual_lengths = np.zeros([batch_size])
-        for j in range(batch_size):
-            length = 0
-            if j < len(batch) and batch[j].num_sequences > i:
-                length = batch[j].actual_lengths[i]
-                x_arr[0:length, j] = np.transpose(batch[j].inputs[i][0:length])
-                y_arr[0:length, j] = np.transpose(batch[j].targets[i][0:length])
-                if hasattr(batch[j], "var_flags"):
-                    masks_arr[0:length, j] = np.transpose(
-                        attention_masks(1, batch[j].var_flags[i], length))
-                else:
-                    masks_arr[0:length, j, :] = attention_masks(1, batch[j].masks[i], length)
+class Batcher:
+    def __init__(self, queue, batch_size, seq_length):
+        if batch_size <= 0:
+            raise AttributeError("batch_size must be larger than 0")
 
-                identifier_usages[j, 0:length] = batch[j].identifier_usage[i][0:length]
+        self.queue = queue
+        self.seq_length = seq_length
+        self.data_queue = deque(queue)
+        self.batch_size = batch_size
+        self.counter = 0
+        self.current_data = None
+        self.current_count = 0
 
-            actual_lengths[j] = length
+    def __iter__(self):
+        return self
 
-        yield (x_arr, y_arr, masks_arr, identifier_usages, actual_lengths)
+    def __next__(self):
+        return self.get_batch(self.batch_size)
+
+    def get_batch(self, batch_size):
+        if self.current_count - self.counter <= self.batch_size:
+            self.load_next_data_batch()
+
+        self.counter += batch_size
+        return self.current_data[(self.counter - self.batch_size):self.counter]
+
+    def __reset(self):
+        self.data_queue = deque(self.queue)
+        self.counter = 0
+
+    def load_next_data_batch(self):
+        if not self.data_queue:
+            self.__reset()
+            raise StopIteration
+
+        current_file = self.data_queue.popleft()
+        with open(current_file, "rb") as f:
+            self.current_data = pickle.load(f)
+        self.current_count = len(self.current_data)
+        if self.current_count == 0:
+            print("Skipping partition %s which is empty" % current_file)
+            self.load_next_data_batch()
+        else:
+            print("Loaded data partition %s with %d examples" % (current_file, self.current_count))
+
+        self.counter = 0
+        gc.collect()
+
+    def sequence_iterator(self, batch):
+        n = max([b.num_sequences for b in batch])
+        for i in range(n):
+            x_arr = np.zeros([self.seq_length, self.batch_size])
+            y_arr = np.zeros([self.seq_length, self.batch_size])
+            masks_arr = np.zeros([self.seq_length, self.batch_size, 1])
+            identifier_usages = np.zeros([self.batch_size, self.seq_length])
+            actual_lengths = np.zeros([self.batch_size])
+            for j in range(self.batch_size):
+                length = 0
+                if j < len(batch) and batch[j].num_sequences > i:
+                    length = batch[j].actual_lengths[i]
+                    x_arr[0:length, j] = np.transpose(batch[j].inputs[i][0:length])
+                    y_arr[0:length, j] = np.transpose(batch[j].targets[i][0:length])
+                    if hasattr(batch[j], "var_flags"):
+                        masks_arr[0:length, j] = np.transpose(
+                            attention_masks(1, batch[j].var_flags[i], length))
+                    else:
+                        masks_arr[0:length, j, :] = attention_masks(1, batch[j].masks[i], length)
+
+                    identifier_usages[j, 0:length] = batch[j].identifier_usage[i][0:length]
+
+                actual_lengths[j] = length
+            yield (x_arr, y_arr, masks_arr, identifier_usages, actual_lengths)
 
 
 if __name__ == '__main__':
     from glob import iglob
     import os
-    from collections import deque
+    import time
 
-    hidden_size = 10
-    seq_length = 5
-    batch_size = 100
+    hidden_size = 100
+    seq_length = 10
+    batch_size = 16
     epoch = 50
     # num_samples = 0
     # attns = 1
     data_path = 'data_samples/mapping.map'
-    num_samples = 10
-    attention_num = 5
+    num_samples = 3
+    # attention_num = 5
     max_attention = 3
     lambda_type = 'state'
-    learning_rate = 0.01
+    learning_rate = 0.000001
     model_path = './model'
     # lr_decay = 0.9
     with open(data_path, "rb") as f:
@@ -511,13 +559,11 @@ if __name__ == '__main__':
     # pattern = 'preprocess.part*'
 
     files = [y for x in os.walk(data) for y in iglob(os.path.join(x[0], pattern))]
-    current_file = deque(files).popleft()
-    with open(current_file, 'rb') as f:
-        current_data = pickle.load(f)
-
+    # current_file = deque(files).popleft()
+    # with open(current_file, 'rb') as f:
+    #     current_data = pickle.load(f)
 
     with tf.Graph().as_default(), tf.Session() as sess:
-
 
         # masks_ = tf.placeholder(tf.bool, [seq_length, batch_size, attention_num], name="masks")
         masks_ = tf.placeholder(tf.bool, [seq_length, batch_size, 1], name="masks")
@@ -549,39 +595,48 @@ if __name__ == '__main__':
         # cost_op = tf.reduce_sum(cross_entropy)
 
         loss = a.loss
-        # train = a.optimizer.minimize(loss)
-        train = a.train_op
+        train = a.optimizer.minimize(loss)
+        # train = a.train_op
         initial_state = a.initial_state  # 초기 state=zero
 
         evals = [loss, train]
         evals = get_evals(evals=evals, model=a)
         print('start')
-        state, att_states, att_ids, att_counts = get_initial_state(a, sess)
-        start_decaying = epoch // 40
-        saver = tf.train.Saver(tf.trainable_variables())
+
+        # saver = tf.train.Saver(tf.trainable_variables())
+        a.assign_lr(sess, learning_rate)
+        batcher = Batcher(files, batch_size, seq_length)
+
         for i in range(epoch):
 
-            print('epoch ', i)
-            lr = learning_rate
-            a.assign_lr(sess, lr)
 
-            for feed_data in sequence_iterator(current_data):
-                feed_dict, identifiers_usage = construct_feed_dict(a, feed_data, state, att_states, att_ids, att_counts)
+            for batch in batcher:
 
-                results = sess.run(evals, feed_dict=feed_dict)
+                state, att_states, att_ids, att_counts = get_initial_state(a, sess)
+                total_loss = 0
+                total_length = 0
 
-                results, state, att_states, att_ids, alpha_states, att_counts, lambda_state = extract_results(results,
-                                                                                                              evals, 2, a)
+                for feed_data in batcher.sequence_iterator(batch):
+                    feed_dict, identifiers_usage = construct_feed_dict(a, feed_data, state, att_states, att_ids,
+                                                                       att_counts)
+
+                    results = sess.run(evals, feed_dict=feed_dict)
+
+                    results, state, att_states, att_ids, alpha_states, att_counts, lambda_state = extract_results(
+                        results,
+                        evals, 2,
+                        a)
+                    total_loss += sum(results[0])
+                    total_length += sum(feed_dict[a._actual_lengths])
+
+            print('perplexity ', np.exp(total_loss / total_length), 'epoch ', i)
             # lr = learning_rate if i < start_decaying else learning_rate * lr_decay
-            now = datetime.datetime.now().strftime("%Y-%m-%d--%H-%M--%f")
-            out_path = os.path.join(model_path, now + "/")
-
-            tf.train.write_graph(sess.graph.as_graph_def(), out_path, 'model.pb', as_text=False)
-            if not os.path.exists(out_path):
-                os.makedirs(out_path)
+            # now = datetime.datetime.now().strftime("%Y-%m-%d--%H-%M--%f")
+            # out_path = os.path.join(model_path, now + "/")
+            #
+            # tf.train.write_graph(sess.graph.as_graph_def(), out_path, 'model.pb', as_text=False)
+            # if not os.path.exists(out_path):
+            #     os.makedirs(out_path)
             # with open(os.path.join(out_path, "config.pkl"), "wb") as f:
             #     pickle.dump(config, f)
-            saver.save(sess, os.path.join(out_path, "model.tf"))
-
-
-            print(sum(results[0]), 'lr ', lr, 'epoch', i, 'start_decaying ', start_decaying)
+            # saver.save(sess, os.path.join(out_path, "model.tf"))
