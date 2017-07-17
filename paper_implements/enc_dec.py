@@ -42,9 +42,8 @@ id_to_word = {i: word for i, word in enumerate(vocabs)}
 # In[3]:
 
 
-id_to_word[0], word_to_id['<PAD>']
+print(id_to_word[0], word_to_id['<PAD>'])
 
-# In[4]:
 
 
 hidden_size = 32
@@ -190,7 +189,7 @@ def seq2seq_model(input_data, targets, target_sequence_length, max_target_sequen
 # Set the graph to default to ensure that it is ready for training
 # with train_graph.as_default():
 with tf.Session() as Ses:
-    print('gogo')
+
     # Load the model inputs
     input_data, targets, lr, target_sequence_length, source_sequence_length, max_target_sequence_length = get_model_inputs()
     print('2')
